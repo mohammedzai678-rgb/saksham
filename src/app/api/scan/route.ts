@@ -183,7 +183,7 @@ export async function POST(request: NextRequest) {
       defaultBranch: branch,
       language,
       languages: detectLanguages(fileContents),
-      framework,
+      framework: framework || null,
       description: '',
       isPrivate: false,
       securityScore: 0,

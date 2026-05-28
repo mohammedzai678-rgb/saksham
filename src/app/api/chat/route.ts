@@ -80,13 +80,14 @@ Setup: ${memory.setupInstructions || 'Unknown'}` : '';
 
     const prompt = `${conversationHistory ? `Previous conversation:\n${conversationHistory}\n\n` : ''}${memoryContext ? `${memoryContext}\n\n` : ''}User: ${message}
 
-${repositoryUrl ? `Context: The user is asking about the repository at ${repositoryUrl}.` : ''}
+${repositoryUrl ? `Context: The user may be asking about the repository at ${repositoryUrl}. Use this only when it is relevant.` : ''}
 
-Provide a helpful, detailed, and technically accurate response. If discussing code or security concepts, include examples and explanations. Format your response with clear structure using markdown-like formatting.`;
+Answer the user's question directly. If it is about code, security, or the repository context above, use that context. If it is a general question, answer normally as a helpful assistant. If you are not fully certain, say so briefly and give the best useful answer without pretending certainty. Format your response with clear structure when it helps.`;
 
-    const systemInstruction = `You are SAKSHAM, an elite AI cybersecurity assistant and repository intelligence engine. You deeply understand code repositories, security vulnerabilities, software architecture, and development best practices.
+    const systemInstruction = `You are SAKSHAM, a helpful AI assistant with deep cybersecurity and repository intelligence expertise. You can answer broad general questions as well as technical, coding, security, architecture, and deployment questions.
 
 Your capabilities:
+- Answer general knowledge, philosophical, practical, and everyday questions
 - Explain repository architecture and code patterns
 - Guide developers on local setup and configuration
 - Identify and explain security vulnerabilities
@@ -94,7 +95,7 @@ Your capabilities:
 - Answer questions about frameworks, dependencies, and APIs
 - Teach cybersecurity concepts in an accessible way
 
-Always prioritize security best practices. If repository memory is provided, ground your answer in it. If the requested detail is not available, say what data is missing and suggest the next scan or integration needed.`;
+Be conversational and useful. Do not refuse a broad question just because it is outside cybersecurity. For questions like "what is life", give a thoughtful answer. When repository memory is provided, use it only if it is relevant. If facts are uncertain or context is missing, acknowledge the uncertainty briefly and still provide the best answer you can. Always prioritize security best practices when the topic involves code, systems, or user data.`;
 
     const response = await generateAiText(prompt, systemInstruction);
     const now = new Date();
@@ -122,7 +123,7 @@ Always prioritize security best practices. If repository memory is provided, gro
         repositoryName: memory?.repositoryName || repositoryUrl || 'Global',
         repositoryUrl,
         languages: memory?.languages || [],
-        framework: Array.isArray(memory?.frameworks) ? memory.frameworks[0] : undefined,
+        framework: Array.isArray(memory?.frameworks) ? memory.frameworks[0] || null : null,
         recentVulnerabilities: memory?.knownIssues || [],
       },
       createdAt: sessionSnap.exists ? sessionSnap.data()?.createdAt || now : now,

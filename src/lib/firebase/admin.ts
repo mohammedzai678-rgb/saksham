@@ -5,7 +5,7 @@
 
 import { initializeApp, getApps, cert, type App, type ServiceAccount } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import type { NextRequest } from 'next/server';
 
@@ -30,6 +30,7 @@ export const isFirebaseAdminConfigured =
   hasValue(process.env.FIREBASE_PRIVATE_KEY);
 
 let adminApp: App | null = null;
+let adminDb: Firestore | null = null;
 
 function getAdminApp() {
   if (!isFirebaseAdminConfigured) {
@@ -63,7 +64,11 @@ export function getAdminAuth() {
 }
 
 export function getAdminDb() {
-  return getFirestore(getAdminApp());
+  if (adminDb) return adminDb;
+
+  adminDb = getFirestore(getAdminApp());
+  adminDb.settings({ ignoreUndefinedProperties: true });
+  return adminDb;
 }
 
 export function getAdminStorage() {
