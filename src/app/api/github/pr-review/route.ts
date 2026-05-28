@@ -5,7 +5,7 @@
 
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { getGeminiModel } from '@/lib/agents/orchestrator';
+import { generateAiText } from '@/lib/agents/orchestrator';
 import { getAdminDb, isFirebaseAdminConfigured, verifyRequestUser } from '@/lib/firebase/admin';
 
 export const maxDuration = 60;
@@ -57,17 +57,10 @@ export async function POST(request: NextRequest) {
     }
 
     const diff = (await diffResponse.text()).slice(0, 50000);
-    const model = getGeminiModel();
-    const result = await model.generateContent({
-      contents: [{
-        role: 'user',
-        parts: [{
-          text: `Review this pull request diff for exploitable security issues. Return a concise markdown review with severity, file references, exploitability, and remediation.\n\n${diff}`,
-        }],
-      }],
-      systemInstruction: 'You are SAKSHAM PR Review Agent. Focus on real exploitable security risks and avoid generic style feedback.',
-    });
-    const review = result.response.text();
+    const review = await generateAiText(
+      `Review this pull request diff for exploitable security issues. Return a concise markdown review with severity, file references, exploitability, and remediation.\n\n${diff}`,
+      'You are SAKSHAM PR Review Agent. Focus on real exploitable security risks and avoid generic style feedback.'
+    );
 
     if (postComment) {
       const commentResponse = await fetch(`https://api.github.com/repos/${repositoryFullName}/issues/${pullNumber}/comments`, {

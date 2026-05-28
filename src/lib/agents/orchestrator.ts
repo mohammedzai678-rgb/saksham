@@ -4,16 +4,71 @@
 // ============================================================
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { InferenceClient } from '@huggingface/inference';
 import type { AgentType, Vulnerability } from '@/types';
 
 // ============================================================
-// GEMINI CLIENT
+// AI CLIENTS
 // ============================================================
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY || '');
+const aiProvider = (process.env.AI_PROVIDER || 'auto').toLowerCase();
+const defaultGeminiModel = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const huggingFaceToken = process.env.HUGGINGFACE_API_TOKEN || '';
+const huggingFaceModel = process.env.HUGGINGFACE_MODEL || 'Qwen/Qwen3-32B';
+type HuggingFaceChatArgs = Parameters<InferenceClient['chatCompletion']>[0];
+const huggingFaceProvider = (process.env.HUGGINGFACE_PROVIDER || 'auto') as HuggingFaceChatArgs['provider'];
+const huggingFaceClient = huggingFaceToken ? new InferenceClient(huggingFaceToken) : null;
 
-export function getGeminiModel(modelName: string = 'gemini-2.0-flash') {
+export function getGeminiModel(modelName: string = defaultGeminiModel) {
   return genAI.getGenerativeModel({ model: modelName });
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function callHuggingFace(prompt: string, systemInstruction?: string) {
+  if (!huggingFaceClient) {
+    throw new Error('HUGGINGFACE_API_TOKEN is not configured.');
+  }
+
+  const result = await huggingFaceClient.chatCompletion({
+    model: huggingFaceModel,
+    provider: huggingFaceProvider,
+    messages: [
+      ...(systemInstruction ? [{ role: 'system', content: systemInstruction }] : []),
+      { role: 'user', content: prompt },
+    ],
+    temperature: 0.1,
+    max_tokens: 2048,
+  });
+
+  const content = result.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error('Hugging Face returned an empty response.');
+  }
+
+  return content;
+}
+
+export async function generateAiText(prompt: string, systemInstruction?: string) {
+  if (process.env.GOOGLE_GEMINI_API_KEY && aiProvider !== 'huggingface') {
+    try {
+      const model = getGeminiModel();
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        systemInstruction,
+      });
+
+      return result.response.text();
+    } catch (error) {
+      if (!huggingFaceClient) throw error;
+      console.warn(`Gemini failed, falling back to Hugging Face: ${errorMessage(error)}`);
+    }
+  }
+
+  return callHuggingFace(prompt, systemInstruction);
 }
 
 // ============================================================
@@ -423,14 +478,7 @@ abstract class BaseAgent {
   abstract execute(context: AgentContext): Promise<AgentResult>;
 
   protected async callGemini(prompt: string, systemInstruction?: string): Promise<string> {
-    const model = getGeminiModel();
-
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      systemInstruction,
-    });
-
-    return result.response.text();
+    return generateAiText(prompt, systemInstruction);
   }
 }
 

@@ -4,7 +4,7 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getGeminiModel } from '@/lib/agents/orchestrator';
+import { generateAiText } from '@/lib/agents/orchestrator';
 import { getAdminDb, isFirebaseAdminConfigured, verifyRequestUser } from '@/lib/firebase/admin';
 
 interface ChatHistoryMessage {
@@ -44,9 +44,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!process.env.GOOGLE_GEMINI_API_KEY) {
+    if (!process.env.GOOGLE_GEMINI_API_KEY && !process.env.HUGGINGFACE_API_TOKEN) {
       return NextResponse.json(
-        { success: false, error: 'GOOGLE_GEMINI_API_KEY is not configured.' },
+        { success: false, error: 'Configure GOOGLE_GEMINI_API_KEY or HUGGINGFACE_API_TOKEN.' },
         { status: 503 }
       );
     }
@@ -96,13 +96,7 @@ Your capabilities:
 
 Always prioritize security best practices. If repository memory is provided, ground your answer in it. If the requested detail is not available, say what data is missing and suggest the next scan or integration needed.`;
 
-    const model = getGeminiModel();
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      systemInstruction,
-    });
-
-    const response = result.response.text();
+    const response = await generateAiText(prompt, systemInstruction);
     const now = new Date();
     const title = storedMessages[0]?.content?.slice(0, 60) || message.slice(0, 60) || 'Repository chat';
     const userMessage = {
