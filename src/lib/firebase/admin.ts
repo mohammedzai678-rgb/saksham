@@ -12,6 +12,18 @@ import type { NextRequest } from 'next/server';
 const hasValue = (value: string | undefined) =>
   Boolean(value && !value.startsWith('your_') && !value.includes('YOUR_PRIVATE_KEY'));
 
+function normalizePrivateKey(value: string | undefined) {
+  if (!value) return value;
+
+  let key = value.trim();
+  if (key.endsWith(',')) key = key.slice(0, -1).trim();
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+    key = key.slice(1, -1);
+  }
+
+  return key.replace(/\\n/g, '\n');
+}
+
 export const isFirebaseAdminConfigured =
   hasValue(process.env.FIREBASE_PROJECT_ID) &&
   hasValue(process.env.FIREBASE_CLIENT_EMAIL) &&
@@ -35,7 +47,7 @@ function getAdminApp() {
   const serviceAccount: ServiceAccount = {
     projectId: process.env.FIREBASE_PROJECT_ID,
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    privateKey: normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY),
   };
 
   adminApp = initializeApp({

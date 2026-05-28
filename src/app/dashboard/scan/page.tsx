@@ -30,6 +30,20 @@ const scanDepths: { value: ScanDepth; label: string; time: string }[] = [
   { value: 'deep', label: 'Deep Scan', time: '~10 min' },
 ];
 
+async function readJsonResponse(response: Response) {
+  const text = await response.text();
+
+  if (!text.trim()) {
+    throw new Error(`Scan API returned an empty response (${response.status} ${response.statusText || 'Unknown status'}). Check the Vercel function logs for /api/scan.`);
+  }
+
+  try {
+    return JSON.parse(text) as { success?: boolean; error?: string };
+  } catch {
+    throw new Error(`Scan API returned a non-JSON response (${response.status}). ${text.slice(0, 160)}`);
+  }
+}
+
 export default function ScanPage() {
   const [repoUrl, setRepoUrl] = useState('');
   const [branch, setBranch] = useState('main');
@@ -108,7 +122,7 @@ export default function ScanPage() {
         }),
       });
 
-      const payload = await response.json();
+      const payload = await readJsonResponse(response);
       if (!response.ok || !payload.success) {
         throw new Error(payload.error || 'Scan failed');
       }

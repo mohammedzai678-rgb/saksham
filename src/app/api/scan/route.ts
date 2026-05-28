@@ -118,10 +118,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const db = getAdminDb();
+  let scanDb: ReturnType<typeof getAdminDb> | null = null;
   let scanSessionId = '';
 
   try {
+    const db = getAdminDb();
+    scanDb = db;
     const authUser = await verifyRequestUser(request);
     const body = await request.json();
     const {
@@ -280,13 +282,17 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Scan error:', error);
-    if (scanSessionId && isFirebaseAdminConfigured) {
-      await getAdminDb().collection('scan_sessions').doc(scanSessionId).set({
-        status: 'failed',
-        error: error instanceof Error ? error.message : 'Internal server error',
-        completedAt: new Date(),
-        updatedAt: new Date(),
-      }, { merge: true });
+    if (scanSessionId && scanDb) {
+      try {
+        await scanDb.collection('scan_sessions').doc(scanSessionId).set({
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'Internal server error',
+          completedAt: new Date(),
+          updatedAt: new Date(),
+        }, { merge: true });
+      } catch (persistenceError) {
+        console.error('Failed to persist scan failure:', persistenceError);
+      }
     }
 
     return NextResponse.json(
