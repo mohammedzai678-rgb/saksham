@@ -325,7 +325,8 @@ async function fetchRepositoryFiles(repository: ParsedRepository, branch: string
     .filter((f) => {
       if (f.type !== 'blob') return false;
       const ext = f.path.split('.').pop()?.toLowerCase();
-      return ['ts', 'tsx', 'js', 'jsx', 'py', 'java', 'go', 'rb', 'rs', 'php', 'cs', 'json', 'yaml', 'yml', 'toml', 'xml', 'env', 'md', 'txt'].includes(ext || '');
+      const filename = f.path.split('/').pop()?.toLowerCase() || '';
+      return ['ts', 'tsx', 'js', 'jsx', 'py', 'java', 'go', 'rb', 'rs', 'php', 'cs', 'json', 'yaml', 'yml', 'toml', 'xml', 'env', 'md', 'txt'].includes(ext || '') || filename.includes('.env');
     })
     .filter((f) => !f.path.includes('node_modules/') && !f.path.includes('dist/') && !f.path.includes('build/'))
     .slice(0, limit);

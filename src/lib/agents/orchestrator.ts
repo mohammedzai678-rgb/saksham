@@ -291,7 +291,7 @@ function runSemgrepCompatibleRules(files: Record<string, string>) {
       id: 'saksham.hardcoded-secret',
       category: 'hardcoded_secrets',
       severity: 'critical',
-      regex: /(aws_access_key_id|aws_secret_access_key|api[_-]?key|secret|token)\s*[:=]\s*['"][A-Za-z0-9/_+=.-]{16,}['"]/i,
+      regex: /(aws_access_key_id|aws_secret_access_key|api[_-]?key|secret|token|password)\s*[:=]\s*['"]?[A-Za-z0-9/_+=.-]{16,}['"]?/i,
       title: 'Hardcoded secret detected',
       impact: 'Credentials committed to source can be used for unauthorized access.',
       attackVector: 'An attacker with repository access can extract and reuse the secret.',
@@ -326,6 +326,25 @@ function runSemgrepCompatibleRules(files: Record<string, string>) {
   ];
 
   Object.entries(files).forEach(([filePath, content]) => {
+    const filename = filePath.split('/').pop()?.toLowerCase() || '';
+    if (filename.includes('.env') && !filename.includes('.env.example') && !filename.includes('.env.sample') && !filename.includes('.env.template')) {
+      findings.push({
+        title: 'Exposed Environment File',
+        category: 'hardcoded_secrets',
+        severity: 'critical',
+        confidence: 'high',
+        filePath,
+        lineStart: 1,
+        lineEnd: 1,
+        codeSnippet: content.split('\n')[0].substring(0, 100),
+        description: 'An environment file (.env) was found in the repository. Environment files often contain highly sensitive credentials and should never be committed to source control.',
+        attackVector: 'An attacker with repository access can extract secrets, API keys, and credentials from this file.',
+        impact: 'Full compromise of the services whose credentials are leaked.',
+        cweIds: ['CWE-798', 'CWE-312'],
+        cveIds: [],
+      });
+    }
+
     const lines = content.split('\n');
     lines.forEach((line, index) => {
       rules.forEach((rule) => {
