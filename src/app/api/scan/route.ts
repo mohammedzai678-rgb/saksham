@@ -556,31 +556,48 @@ async function persistScanResults(input: {
 
 function normalizeVulnerabilities(results: AgentResult[]) {
   const sources = ['enrichedVulnerabilities', 'validatedVulnerabilities', 'vulnerabilities'];
-  const drafts: VulnerabilityDraft[] = [];
+  const seen = new Map<string, VulnerabilityDraft>();
 
-  for (const result of [...results].reverse()) {
+  // Process from oldest to newest so newer agents overwrite/enrich older findings
+  for (const result of results) {
     if (!result.data || typeof result.data !== 'object') continue;
     const data = result.data as Record<string, unknown>;
+    
+    let foundArray: VulnerabilityDraft[] | undefined;
     for (const key of sources) {
       if (Array.isArray(data[key])) {
-        drafts.push(...(data[key] as VulnerabilityDraft[]));
+        foundArray = data[key] as VulnerabilityDraft[];
         break;
+      }
+    }
+    
+    if (foundArray) {
+      for (const draft of foundArray) {
+        // Use a loose key for deduplication to prevent near-duplicates
+        const titleMatch = safeString(draft.title, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const fileMatch = safeString(draft.filePath, '').toLowerCase();
+        const pkgMatch = safeString(draft.packageName, '').toLowerCase();
+        
+        // Key: file/pkg + first 20 chars of title to catch slight variations
+        const key = `${fileMatch}|${pkgMatch}|${titleMatch.substring(0, 20)}`;
+        
+        if (key === '||') continue;
+        
+        const existing = seen.get(key) || {};
+        
+        // Merge, preferring truthy new values
+        const merged: any = { ...existing };
+        for (const [k, v] of Object.entries(draft)) {
+          if (v !== undefined && v !== null && v !== '') {
+             merged[k] = v;
+          }
+        }
+        seen.set(key, merged);
       }
     }
   }
 
-  const seen = new Set<string>();
-  return drafts.filter((draft) => {
-    const key = [
-      safeString(draft.title, ''),
-      safeString(draft.filePath, ''),
-      Number(draft.lineStart || 0),
-      safeString(draft.packageName, ''),
-    ].join('|').toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return Boolean(draft.title || draft.description || draft.packageName);
-  });
+  return Array.from(seen.values()).filter(d => Boolean(d.title || d.description || d.packageName));
 }
 
 function normalizeRemediations(results: AgentResult[]) {

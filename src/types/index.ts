@@ -317,6 +317,7 @@ export interface SavedReport {
   storageUrl: string;
   findings: ScanFindings;
   generatedAt: Timestamp;
+  createdAt: Timestamp;
   fileSize: number;
 }
 

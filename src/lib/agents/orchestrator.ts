@@ -634,9 +634,40 @@ class ExploitabilityValidationAgent extends BaseAgent {
   description = 'Validates whether vulnerabilities are truly exploitable to reduce false positives';
 
   async execute(context: AgentContext): Promise<AgentResult> {
-    const previousVulns = context.previousResults
-      .filter(r => r.data && typeof r.data === 'object' && 'vulnerabilities' in (r.data as Record<string, unknown>))
-      .flatMap(r => ((r.data as Record<string, unknown>).vulnerabilities as unknown[]) || []);
+    const sources = ['enrichedVulnerabilities', 'validatedVulnerabilities', 'vulnerabilities'];
+    const seen = new Map<string, any>();
+    
+    for (const result of context.previousResults) {
+      if (!result.data || typeof result.data !== 'object') continue;
+      const data = result.data as Record<string, unknown>;
+      
+      let foundArray: any[] | undefined;
+      for (const key of sources) {
+        if (Array.isArray(data[key])) {
+          foundArray = data[key];
+          break;
+        }
+      }
+      
+      if (foundArray) {
+        for (const draft of foundArray) {
+          const titleMatch = (typeof draft.title === 'string' ? draft.title : '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const fileMatch = (typeof draft.filePath === 'string' ? draft.filePath : '').toLowerCase();
+          const pkgMatch = (typeof draft.packageName === 'string' ? draft.packageName : '').toLowerCase();
+          const key = `${fileMatch}|${pkgMatch}|${titleMatch.substring(0, 20)}`;
+          if (key === '||') continue;
+          
+          const existing = seen.get(key) || {};
+          const merged = { ...existing };
+          for (const [k, v] of Object.entries(draft)) {
+            if (v !== undefined && v !== null && v !== '') merged[k] = v;
+          }
+          seen.set(key, merged);
+        }
+      }
+    }
+    
+    const previousVulns = Array.from(seen.values());
 
     if (previousVulns.length === 0) {
       return {
@@ -658,16 +689,17 @@ For each vulnerability, assess:
 2. Are there existing mitigations (WAF, input validation, parameterized queries)?
 3. What is the realistic exploit feasibility?
 
-Return a JSON array of validated vulnerabilities with added fields:
+Return a JSON array of validated vulnerabilities. YOU MUST INCLUDE ALL ORIGINAL FIELDS (especially codeSnippet, filePath, title, category, severity) and add the following new fields:
 - isExploitable: boolean
 - exploitability: string (confirmed | likely | possible | unlikely)
 - exploitScenario: string (detailed attack scenario)
 - mitigationsFound: string[] (existing mitigations detected)
 - reachabilityAnalysis: string
 
+CRITICAL: Do NOT drop or modify the original \`codeSnippet\`, \`lineStart\`, or \`filePath\`.
 Return ONLY valid JSON array.`;
 
-    const systemInstruction = `You are SAKSHAM's Exploitability Validation Agent — the MOST CRITICAL agent. You think like an attacker to determine if vulnerabilities are truly exploitable. You analyze input reachability, existing mitigations, and realistic exploit feasibility. Your goal is to ELIMINATE FALSE POSITIVES. Be thorough and honest.`;
+    const systemInstruction = `You are SAKSHAM's Exploitability Validation Agent — the MOST CRITICAL agent. You think like an attacker to determine if vulnerabilities are truly exploitable. You analyze input reachability, existing mitigations, and realistic exploit feasibility. Your goal is to ELIMINATE FALSE POSITIVES. Be thorough and honest. ALWAYS retain the original codeSnippet and filePath in your output.`;
 
     const response = await this.callGemini(prompt, systemInstruction);
 
@@ -699,19 +731,47 @@ class ThreatIntelligenceAgent extends BaseAgent {
   description = 'Correlates findings with live threat intelligence sources';
 
   async execute(context: AgentContext): Promise<AgentResult> {
-    const previousVulns = context.previousResults
-      .filter(r => r.data && typeof r.data === 'object' && ('validatedVulnerabilities' in (r.data as Record<string, unknown>) || 'vulnerabilities' in (r.data as Record<string, unknown>)))
-      .flatMap(r => {
-        const data = r.data as Record<string, unknown>;
-        return ((data.validatedVulnerabilities || data.vulnerabilities) as unknown[]) || [];
-      });
+    const sources = ['enrichedVulnerabilities', 'validatedVulnerabilities', 'vulnerabilities'];
+    const seen = new Map<string, any>();
+    
+    for (const result of context.previousResults) {
+      if (!result.data || typeof result.data !== 'object') continue;
+      const data = result.data as Record<string, unknown>;
+      
+      let foundArray: any[] | undefined;
+      for (const key of sources) {
+        if (Array.isArray(data[key])) {
+          foundArray = data[key];
+          break;
+        }
+      }
+      
+      if (foundArray) {
+        for (const draft of foundArray) {
+          const titleMatch = (typeof draft.title === 'string' ? draft.title : '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const fileMatch = (typeof draft.filePath === 'string' ? draft.filePath : '').toLowerCase();
+          const pkgMatch = (typeof draft.packageName === 'string' ? draft.packageName : '').toLowerCase();
+          const key = `${fileMatch}|${pkgMatch}|${titleMatch.substring(0, 20)}`;
+          if (key === '||') continue;
+          
+          const existing = seen.get(key) || {};
+          const merged = { ...existing };
+          for (const [k, v] of Object.entries(draft)) {
+            if (v !== undefined && v !== null && v !== '') merged[k] = v;
+          }
+          seen.set(key, merged);
+        }
+      }
+    }
+    
+    const previousVulns = Array.from(seen.values());
 
     const prompt = `You are a threat intelligence analyst. Given these vulnerabilities, correlate them with known threat intelligence:
 
 Vulnerabilities:
 ${JSON.stringify(previousVulns.slice(0, 10), null, 2)}
 
-For each vulnerability, add threat intelligence data:
+For each vulnerability, YOU MUST RETAIN ALL ORIGINAL FIELDS (especially codeSnippet, filePath, title) and add threat intelligence data:
 - activelyExploited: boolean (is this being exploited in the wild?)
 - cisaKev: boolean (is this in CISA's Known Exploited Vulnerabilities catalog?)
 - mitreAttackIds: string[] (relevant MITRE ATT&CK technique IDs)
@@ -720,9 +780,10 @@ For each vulnerability, add threat intelligence data:
 - threatActors: string[] (known threat actors using this vulnerability)
 - urgency: string (immediate | high | medium | low)
 
+CRITICAL: Do NOT drop or modify the original \`codeSnippet\`, \`lineStart\`, or \`filePath\`.
 Return ONLY valid JSON array with the enriched vulnerabilities.`;
 
-    const systemInstruction = `You are SAKSHAM's Threat Intelligence Agent. You correlate vulnerability findings with intelligence from CISA KEV, MITRE ATT&CK, Exploit-DB, and GitHub PoCs. You identify active exploitation campaigns and provide urgency assessments.`;
+    const systemInstruction = `You are SAKSHAM's Threat Intelligence Agent. You correlate vulnerability findings with intelligence from CISA KEV, MITRE ATT&CK, Exploit-DB, and GitHub PoCs. You identify active exploitation campaigns and provide urgency assessments. ALWAYS retain the original codeSnippet and filePath in your output.`;
 
     const response = await this.callGemini(prompt, systemInstruction);
 
@@ -808,14 +869,41 @@ class RemediationAgent extends BaseAgent {
   description = 'Generates secure patches and remediation guidance';
 
   async execute(context: AgentContext): Promise<AgentResult> {
-    const vulnerabilities = context.previousResults
-      .filter(r => r.data && typeof r.data === 'object')
-      .flatMap(r => {
-        const data = r.data as Record<string, unknown>;
-        return ((data.enrichedVulnerabilities || data.validatedVulnerabilities || data.vulnerabilities) as unknown[]) || [];
-      })
-      .filter((v) => !isRecord(v) || v.isExploitable !== false)
-      .slice(0, 10);
+    const sources = ['enrichedVulnerabilities', 'validatedVulnerabilities', 'vulnerabilities'];
+    const seen = new Map<string, any>();
+    
+    for (const result of context.previousResults) {
+      if (!result.data || typeof result.data !== 'object') continue;
+      const data = result.data as Record<string, unknown>;
+      
+      let foundArray: any[] | undefined;
+      for (const key of sources) {
+        if (Array.isArray(data[key])) {
+          foundArray = data[key];
+          break;
+        }
+      }
+      
+      if (foundArray) {
+        for (const draft of foundArray) {
+          if (draft.isExploitable === false) continue; // Skip known false positives
+          const titleMatch = (typeof draft.title === 'string' ? draft.title : '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const fileMatch = (typeof draft.filePath === 'string' ? draft.filePath : '').toLowerCase();
+          const pkgMatch = (typeof draft.packageName === 'string' ? draft.packageName : '').toLowerCase();
+          const key = `${fileMatch}|${pkgMatch}|${titleMatch.substring(0, 20)}`;
+          if (key === '||') continue;
+          
+          const existing = seen.get(key) || {};
+          const merged = { ...existing };
+          for (const [k, v] of Object.entries(draft)) {
+            if (v !== undefined && v !== null && v !== '') merged[k] = v;
+          }
+          seen.set(key, merged);
+        }
+      }
+    }
+    
+    const vulnerabilities = Array.from(seen.values()).slice(0, 10);
 
     if (vulnerabilities.length === 0) {
       return {
@@ -833,17 +921,18 @@ Vulnerabilities:
 ${JSON.stringify(vulnerabilities, null, 2)}
 
 For each vulnerability, provide a JSON array with objects containing:
-- vulnerabilityTitle: string
+- vulnerabilityTitle: string (MUST EXACY MATCH the title of the vulnerability being remediated)
 - explanation: string (explain why this is dangerous, educate the developer)
 - patchDiff: string (a minimal diff showing the fix, using unified diff format)
 - patchedCode: string (the corrected code)
 - originalCode: string (the vulnerable code)
-- filePath: string
+- filePath: string (MUST MATCH the original vulnerability filePath)
 - guidance: string[] (step-by-step fix instructions)
 - references: string[] (relevant security documentation URLs)
 - estimatedEffort: string (trivial | low | medium | high)
 - breakingChange: boolean
 
+CRITICAL: The \`vulnerabilityTitle\` MUST EXACTLY MATCH the title from the input vulnerabilities so it can be linked correctly.
 Return ONLY valid JSON array.`;
 
     const systemInstruction = `You are SAKSHAM's Remediation Agent. You generate production-ready security patches, explain vulnerabilities to developers, and provide clear remediation guidance. Your patches must be minimal, correct, and non-breaking when possible.`;

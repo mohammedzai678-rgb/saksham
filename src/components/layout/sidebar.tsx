@@ -41,7 +41,6 @@ const navItems = [
   { href: '/dashboard/reports', icon: FileText, label: 'Reports' },
   { href: '/dashboard/repositories', icon: GitBranch, label: 'Repositories' },
   { href: '/dashboard/history', icon: History, label: 'Scan History' },
-  { href: '/dashboard/docs', icon: BookOpen, label: 'Knowledge Base' },
 ];
 
 const bottomItems = [

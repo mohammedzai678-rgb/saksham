@@ -1,6 +1,6 @@
 // ============================================================
 // SAKSHAM — Repository Scan Page
-// Real persisted scan initiation with Firestore agent telemetry
+// Real persisted scan with results panel
 // ============================================================
 
 'use client';
@@ -15,12 +15,19 @@ import {
   Loader2,
   CheckCircle2,
   Bot,
+  AlertTriangle,
+  Bug,
+  Shield,
+  FileText,
+  ArrowRight,
+  Zap,
 } from 'lucide-react';
 import { useScanStore } from '@/lib/store';
 import toast from 'react-hot-toast';
 import type { AgentType } from '@/types';
 import { useAuth } from '@/lib/auth/auth-context';
-import { useAgentLogs, useScanSessions } from '@/hooks/use-firestore-collections';
+import { useAgentLogs, useScanSessions, useVulnerabilities } from '@/hooks/use-firestore-collections';
+import Link from 'next/link';
 
 type ScanDepth = 'shallow' | 'standard' | 'deep';
 
@@ -32,13 +39,11 @@ const scanDepths: { value: ScanDepth; label: string; time: string }[] = [
 
 async function readJsonResponse(response: Response) {
   const text = await response.text();
-
   if (!text.trim()) {
     throw new Error(`Scan API returned an empty response (${response.status} ${response.statusText || 'Unknown status'}). Check the Vercel function logs for /api/scan.`);
   }
-
   try {
-    return JSON.parse(text) as { success?: boolean; error?: string };
+    return JSON.parse(text) as { success?: boolean; error?: string; data?: any };
   } catch {
     throw new Error(`Scan API returned a non-JSON response (${response.status}). ${text.slice(0, 160)}`);
   }
@@ -51,9 +56,11 @@ export default function ScanPage() {
   const [isScanning, setIsScanning] = useState(false);
   const [scanComplete, setScanComplete] = useState(false);
   const [activeScanId, setActiveScanId] = useState<string | undefined>();
+  const [scanResults, setScanResults] = useState<any>(null);
   const { user } = useAuth();
   const { data: liveLogs } = useAgentLogs(activeScanId);
   const { data: scans } = useScanSessions();
+  const { data: allVulns } = useVulnerabilities();
   const {
     agentStates,
     agentLogs,
@@ -67,6 +74,13 @@ export default function ScanPage() {
   const liveScan = useMemo(() => scans.find((scan) => scan.id === activeScanId), [activeScanId, scans]);
   const displayProgress = liveScan?.progress ?? scanProgress;
   const displayComplete = scanComplete || liveScan?.status === 'completed';
+
+  // Get vulnerabilities for this scan
+  const scanVulns = useMemo(() =>
+    activeScanId ? allVulns.filter(v => (v as any).scanSessionId === activeScanId) : [],
+    [activeScanId, allVulns]
+  );
+
   const terminalLogs = liveLogs.length > 0
     ? [...liveLogs].reverse().map((log) => ({
         agent: log.agentType.replace(/_/g, ' '),
@@ -101,6 +115,7 @@ export default function ScanPage() {
     setActiveScanId(scanSessionId);
     setIsScanning(true);
     setScanComplete(false);
+    setScanResults(null);
     resetScan();
     setScanProgress(2);
     updateAgentState('orchestrator', { status: 'running', currentTask: 'Initializing persisted scan session...' });
@@ -129,9 +144,18 @@ export default function ScanPage() {
 
       setScanProgress(100);
       setScanComplete(true);
+      setScanResults(payload.data);
       updateAgentState('orchestrator', { status: 'completed', progress: 100 });
       addAgentLog('Orchestrator', 'All agents completed. Scan results persisted to Firestore.');
       toast.success('Scan completed successfully!');
+
+      // Send browser notification
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('SAKSHAM — Scan Complete', {
+          body: `Found ${payload.data?.persisted?.vulnerabilities || 0} vulnerabilities. Security score: ${payload.data?.persisted?.securityScore ?? 'N/A'}/100`,
+          icon: '/favicon.ico',
+        });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Scan failed. Please try again.';
       toast.error(message);
@@ -149,7 +173,7 @@ export default function ScanPage() {
           <Scan className="w-6 h-6 text-saksham-primary" />
           Scan Repository
         </h1>
-        <p className="text-sm text-text-muted mt-1">Paste a GitHub URL to start the persisted multi-agent security pipeline</p>
+        <p className="text-sm text-text-muted mt-1">Paste a GitHub URL to start the multi-agent security pipeline</p>
       </div>
 
       <motion.div
@@ -225,7 +249,7 @@ export default function ScanPage() {
             ) : displayComplete ? (
               <>
                 <CheckCircle2 className="w-5 h-5" />
-                Scan Complete — View Results
+                Scan Complete — See Results Below
               </>
             ) : (
               <>
@@ -237,6 +261,96 @@ export default function ScanPage() {
         </motion.button>
       </motion.div>
 
+      {/* ============ SCAN RESULTS PANEL ============ */}
+      <AnimatePresence>
+        {displayComplete && (scanResults || scanVulns.length > 0) && (
+          <motion.div
+            className="glass-card rounded-2xl p-6"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+          >
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-base font-bold text-text-primary flex items-center gap-2">
+                <Shield className="w-5 h-5 text-saksham-primary" />
+                Scan Results
+              </h3>
+              {scanResults?.persisted?.securityScore != null && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-text-muted">Security Score</span>
+                  <span className={`text-lg font-bold font-mono ${
+                    scanResults.persisted.securityScore >= 80 ? 'text-saksham-success' :
+                    scanResults.persisted.securityScore >= 50 ? 'text-saksham-warning' : 'text-saksham-accent'
+                  }`}>
+                    {scanResults.persisted.securityScore}/100
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Stats cards */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+              {[
+                { label: 'Total Findings', value: scanVulns.length || scanResults?.persisted?.vulnerabilities || 0, color: 'text-text-primary', bg: 'bg-white/5' },
+                { label: 'Critical', value: scanVulns.filter(v => v.severity === 'critical').length, color: 'text-red-400', bg: 'bg-red-500/10' },
+                { label: 'High', value: scanVulns.filter(v => v.severity === 'high').length, color: 'text-orange-400', bg: 'bg-orange-500/10' },
+                { label: 'Medium', value: scanVulns.filter(v => v.severity === 'medium').length, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
+                { label: 'Low', value: scanVulns.filter(v => v.severity === 'low').length, color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
+              ].map((stat) => (
+                <div key={stat.label} className={`${stat.bg} rounded-xl p-3 text-center border border-border-default`}>
+                  <p className={`text-2xl font-bold font-mono ${stat.color}`}>{stat.value}</p>
+                  <p className="text-[10px] text-text-muted mt-1">{stat.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Top vulnerabilities */}
+            {scanVulns.length > 0 && (
+              <div className="mb-4">
+                <h4 className="text-sm font-semibold text-text-primary mb-2">Top Findings</h4>
+                <div className="space-y-1.5">
+                  {scanVulns.slice(0, 5).map((vuln) => (
+                    <div key={vuln.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-bg-elevated/50 border border-border-default">
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded uppercase badge-${vuln.severity}`}>
+                        {vuln.severity}
+                      </span>
+                      <span className="text-xs text-text-primary flex-1 truncate">{vuln.title}</span>
+                      <span className="text-[10px] text-text-muted font-mono">{vuln.filePath}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Link href="/dashboard/vulnerabilities">
+                <button className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl glass hover:border-saksham-primary/30 text-sm font-medium text-text-secondary hover:text-saksham-primary transition-all">
+                  <Bug className="w-4 h-4" />
+                  View All Vulnerabilities
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </Link>
+              <Link href="/dashboard/attack-graphs">
+                <button className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl glass hover:border-saksham-secondary/30 text-sm font-medium text-text-secondary hover:text-saksham-secondary transition-all">
+                  <Zap className="w-4 h-4" />
+                  Attack Graphs
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </Link>
+              <Link href="/dashboard/reports">
+                <button className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl glass hover:border-saksham-success/30 text-sm font-medium text-text-secondary hover:text-saksham-success transition-all">
+                  <FileText className="w-4 h-4" />
+                  Generate Report
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </Link>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ============ AGENT PIPELINE ============ */}
       <AnimatePresence>
         {(isScanning || displayComplete || activeScanId) && (
           <motion.div
